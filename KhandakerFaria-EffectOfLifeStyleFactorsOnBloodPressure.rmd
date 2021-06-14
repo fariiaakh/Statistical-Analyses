@@ -1,0 +1,850 @@
+---
+title: "Which Lifestyle Factors Impact Blood Pressure Readings And Does Smoking Have A Significant Impact On It?"
+author: "Faria Khandaker"
+date: "6/14/2021"
+output: pdf_document
+---
+
+```{r}
+# accessing the NHANES dataset
+
+## install.packages("NHANES")
+library(tidyverse)
+library(NHANES)
+small.nhanes<-na.omit(NHANES[NHANES$SurveyYr=="2011_12" & NHANES$Age > 17,c(1,3,4,8:11,13,17,20,21,25,46,50,51,52,61)])
+small.nhanes <- as.data.frame(small.nhanes %>%group_by(ID) %>% filter(row_number()==1) )
+nrow(small.nhanes)
+length(unique(small.nhanes$ID))## duplicates don't exist
+
+## Create training and test set
+set.seed(1000557774)
+train <- small.nhanes[sample(seq_len(nrow(small.nhanes)), size = 500),]
+nrow(train)
+rownames(train) <- NULL 
+length(which(small.nhanes$ID %in% train$ID))
+test <- small.nhanes[!small.nhanes$ID %in% train$ID,]
+nrow(test)
+rownames(test) <- NULL 
+```
+
+# Variable Renaming and Analysis
+
+For the purpose of this analysis, the NHANES dataset at 17 variables of interest, 1 of which is a ID column for each individual. The variables and their descriptions (obtained from r documentation) include:
+- ID (continuous): participant identifier
+- GENDER (categorical): male or female
+- AGE (continuous): pple older than 80 were recorded as 80
+- RACE (categorical): Mexican, Hispanic, White, Black, Asian, or Other
+- EDUCATION (categorical): 8th gr, 9-11 gr, highschool, some college, college grad
+- MARITAL STATUS: married, widowed, divorced, separated, NeverMarried, LivePartner
+- HHINCOME(HOUSEHOLD INCOME)(categorica): Annual gross household income, 12 levels
+- POVERTY (Continuous): ratio of income to family guidelines, smaller numbers indicate more poverty
+- WEIGHT(Continuous) weight in KG
+- HEIGHT(Continuous) height in cm
+- BMI (Continuous)
+- BPSYSAVE(SYSTOLIC BLOOD PRESSURE) (continuous): combined blood pressure reading. systolic blood pressure indicates the amount of pressure being exerted on the walls of your arteries when your heart beats. Increasing stiffness in the arteries and plaque build up cause systolic pressure to rise. This is why systolic blood pressure is a good predictor of illnesses related to the heart
+- DEPRESSED (categorical): number of days participant felt depressed None, Several, Majority
+- SLEEPHRSNIGHT(continuous): usual number of hours sleep at night
+- SLEEPTROUBLE(Categorical): participant told health professional they have trouble sleeping, yes or no
+- PHYSACTIVE(Categorical): participant does moderate or vigorous fitness or recreational activities yes or no
+- SMOKENOW(Categorical): smokes everyday yes or no
+```{r}
+# removing ID as a variable from training and testing dataset.
+train<-train[,-c(1)]
+test<-test[,-c(1)]
+
+
+
+#factoring categorical variables on train and test
+
+train$Gender<-as.factor(train$Gender)
+train$Race3<-as.factor(train$Race3)
+train$Education<-as.factor(train$Education)
+train$MaritalStatus<-as.factor(train$MaritalStatus)
+train$Depressed<-as.factor(train$Depressed)
+train$SleepTrouble<-as.factor(train$SleepTrouble)
+train$PhysActive<-as.factor(train$PhysActive)
+train$SmokeNow<-as.factor(train$SmokeNow)
+
+test$Gender<-as.factor(test$Gender)
+test$Race3<-as.factor(test$Race3)
+test$Education<-as.factor(test$Education)
+test$MaritalStatus<-as.factor(test$MaritalStatus)
+test$Depressed<-as.factor(test$Depressed)
+test$SleepTrouble<-as.factor(test$SleepTrouble)
+test$PhysActive<-as.factor(test$PhysActive)
+test$SmokeNow<-as.factor(test$SmokeNow)
+
+
+
+```
+
+
+#Exploratory Data Analysis
+Exploratory data analysis is done on the whole dataset
+
+```{r}
+
+summary(small.nhanes)
+str(small.nhanes)
+
+library(ggplot2)
+
+
+plot(small.nhanes$SmokeNow,small.nhanes$BPSysAve, main="Relationship Between Smoking and Blood Pressure", xlab="Smoking", ylab="Average Systolic Blood Pressure",col="green")
+# healthy blood pressure  should be 120 and below, it does seem like non-smokers on average seem to have higher blood pressures
+
+hist(small.nhanes$BPSysAve, xlab = "Average Systolic Blood Pressure", main = "Histogram of Average Systolic Blood Pressure",col = "orange")# a right skewed distribution with a median of 122 and a mean of 124
+hist(small.nhanes$Age, col = "violet", main="Histogram of Age Distribution", xlab="Age in years")# almost a uniform distribution of ages between 20 and 80. mean of 50 and median of 51
+hist(small.nhanes$Poverty,col = "violet", main="Histogram of Poverty Scores", xlab="Poverty Scores (lower score indicate more poverty)")
+
+hist(small.nhanes$Height, col = "violet", main="Histogram of Height Distribution", xlab="Height in Centimeters") #normally distributed
+
+hist(small.nhanes$Weight,col = "violet", main="Histogram of Weight Distribution", xlab="Weight in Kilograms")# right skewed
+hist(small.nhanes$BMI,col = "violet", main="Histogram of Body-Mass Index Scores Distribution", xlab="Body Mass Index (18-24.9 is healthy)")# right skewed
+hist(small.nhanes$SleepHrsNight, col = "violet", main="Distribution of Hours Slept at Night", xlab="Hours Slept at Night")
+
+library(MASS)
+
+colors <-  c("red", "yellow", "green", "violet", "orange", "blue", "pink", "cyan") 
+
+race<- table(small.nhanes$Race3) #white has the highest count
+barplot(race, col=colors, main="Race Breakdown in Population",xlab = "Race", ylab = "Count")
+
+gender<- table(small.nhanes$Gender) #overall there are more males in the dataset
+barplot(gender, col=colors, main="Gender Breakdown in Population",xlab = "Gender", ylab = "Count")
+
+edu<- table(small.nhanes$Education)# a little more than half the people have experienced some college
+barplot(edu, col=colors,  main="Education Breakdown in Population",xlab = "Education Levels", ylab = "Count")
+
+marital<- table(small.nhanes$MaritalStatus)# majority of the population of this dataset it married
+barplot(marital, col=colors,main="Marital Status Breakdown in Population",xlab = "Marital Status", ylab = "Count")
+
+income<- table(small.nhanes$HHIncome) # there are more middle to high income pple in this dataset
+barplot(income, col=colors,  main="Income Breakdown in Population",xlab = "House Hold Income", ylab = "Count")
+
+depressed<- table(small.nhanes$Depressed) # majority of the population reports not being depressed most days of the year
+barplot(depressed, col=colors,main="Level of Depression Breakdown in Population",xlab = "Level of Depression", ylab = "Count")
+
+sleeptr<- table(small.nhanes$SleepTrouble) # most people don't have trouble sleeping
+barplot(sleeptr, col=colors,main="Trouble Sleeping in Population",xlab = "Trouble Sleeping", ylab = "Count")
+
+physact<- table(small.nhanes$PhysActive)# physically active people are split pretty close to being half and half
+barplot(physact, col=colors,main="Level of Physical Activity Breakdown in Population",xlab = "Level of Physical Activity", ylab = "Count")
+
+smoke<- table(small.nhanes$SmokeNow) # most people are nonsmokers although there are signifantly amount of smokers also captured
+barplot(smoke, col=colors, main="Smoking Breakdown in Population",xlab = "Smokes Everyday", ylab = "Count")
+```
+
+
+
+```{r}
+#effect of other predictors on blood pressure
+
+#there looks to be a slight positive correlation with blood pressure and age
+ggplot(data = small.nhanes, aes(x=Age, y=BPSysAve,colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and Age in Smokers and Non-Smokers",y="Blood Pressure")
+
+# many outliers but no clear linear relationship b/w poverty and blood pressure
+ggplot(data = small.nhanes, aes(x=Poverty, y=BPSysAve,colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and Poverty in Smokers and Non-Smokers",y="Blood Pressure",x="Poverty Scores")
+
+#no relationship b/w blood pressure and height
+ggplot(data = small.nhanes, aes(x=Height, y=BPSysAve, colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and Height in Smokers and Non-Smokers",y="Blood Pressure",x="Height in Centimeters") 
+
+ggplot(data = small.nhanes, aes(x=Weight, y=BPSysAve,colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and Weight in Smokers and Non-Smokers",y="Blood Pressure", x="Weight in Kilograms")
+
+ggplot(data = small.nhanes, aes(x=BMI, y=BPSysAve,colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and BMI in Smokers and Non-Smokers",y="Blood Pressure", x="Body Mass Index")
+
+ggplot(data = small.nhanes, aes(x=SleepHrsNight, y=BPSysAve,colour=SmokeNow))+geom_point()+facet_wrap(~SmokeNow)+geom_hline(yintercept = 120)+labs(title = "Relationship between Blood Pressure and Sleep in Smokers and Non-Smokers",y="Blood Pressure", x="Hours Slept at night")
+
+```
+
+#Model Diagnostics
+
+Simple linear regression was used to check the linearity assumption between Blood Pressure and other continuous variables. The fitted vs residual plots shows that the residuals are randomly dispersed along the zero horizontal line which means the linearity assumption is met but there are outliers present in every model
+
+```{r}
+# SLR Model Diagnostics
+bpage<-lm(train$BPSysAve~train$Age)#139,398,95
+bppov<-lm(train$BPSysAve~train$Poverty)# 7,333 398,95
+bphei<-lm(train$BPSysAve~train$Height)# 95, 139, 333,398
+bpwei<-lm(train$BPSysAve~train$Weight)# outliers rows 398, 95,470,333,139
+bpbmi<-lm(train$BPSysAve~train$BMI)# outliers: rows 95, 333, 139,398,470
+bpsleep<-lm(train$BPSysAve~train$SleepHrsNight)# outliers rows 95, 221,261
+
+plot(bppov)
+
+SLROutliers<-c(7,95,139,398,221,261,470,333)
+
+```
+
+Single linear reg models were run using the continuous to see how these continuous variables connect with blood pressue and a few of the same 'numbered' outliers (7, 95,139,398,221,261,470,333) were seen. All the plots seem to confirm that the residuals follow linear assumptions of linearity, normality and homoscedasticity.The outliers found will be further investigated later on. 
+
+# Running the full model
+```{r}
+#Testing out models and parameter
+
+#MLR
+set.seed(1000557774)
+multimodel<-lm(train$BPSysAve~.,data = train)
+
+summary(multimodel)
+```
+
+## Checking Model Diagnostics of full model
+```{r}
+plot(multimodel) #proper title and x and y labels
+
+```
+ There are a few outlier points in all 4 diagnostic plots but residuals in the residuals vs fitted plot, scale-location and the qqplot seem relatively linear, normal and homoscedastic. These outliers are checked using different methods for whether or not they are influential points or bad leverage points. The rownumbers which appear as outlier in the plots above are 333, 95 and 398. These outliers were also seen in the plots from the single linear regression models. 
+ 
+# Checking outliers for leverage points
+
+There were 2 runs of removing leverage points. Please note that the row indices were reset after the 2nd run in order to allow for accurate comparison of points kept and points removed between each run. 
+
+## Checking Leverage points
+
+```{r}
+set.seed(1000557774)
+
+library(Matrix)
+hmatrix <- hatvalues(multimodel) #help us find leverage points
+thresh <- 2 * (dim(model.matrix(multimodel))[2])/nrow(train) #p=38 because each category in categorical is counted as individual predictor and ID was removed as predictor
+levpoints <- array(which(hmatrix > thresh))
+levpoints
+train[levpoints,]
+
+```
+The above hat matrix does not include any of the points seen the full MLR diagnostic plots above but 470 was an outlier in the SLR plots for BMI and Weight.
+## Cook's Distance
+
+```{r}
+D <- cooks.distance(multimodel)
+
+
+#p=38 because of categorical variables and removal of ID
+
+which(D > qf(0.5, 39, 461)) #fdist,0.5=50th percentile, 38+1=p+1, 500-38-1=n-p-1
+
+
+# cooks distance doesn't show any influential points
+```
+Cook's distance did not return any influential points or outliers
+
+## DFBETAS
+
+```{r}
+dfb <- dfbetas(multimodel)
+
+dfbetasoutliers<-array(which(abs(dfb[,1]) > 2/sqrt(500)))
+SLROutliers;levpoints;dfbetasoutliers
+
+#there appear to be many influential points
+       
+```
+
+there are 4 leverage points which are found in the dfbetas: row number 116, 325,465 and 470. Of the 3 outliers seen in the MLR plots, all 3 of them appear in the dfbetas analysis of influential points: row number  333 and 398. 333,398 and 470 were also present in the SLR plots
+## DFFITS
+```{r}
+set.seed(1000557774)
+dfits <- dffits(multimodel)
+dfitsoutliers<-array(which(abs(dfits) > 2*sqrt(39/500))) #(p+1)/n
+which(dfitsoutliers %in% dfbetasoutliers)
+train[dfitsoutliers,]
+SLROutliers;levpoints;dfbetasoutliers;dfitsoutliers
+#also in this case there appear to be many influential points
+```
+
+Dffits also contains the outliers seen in the SLR plots, namely: 95,139,398,261,333 and 470. When comparing the leverage points determined by the hat matrix with the influential points determined by dffits,there are 4 points, rownumber: 116,325,470,465
+when comparing dffits with df betas, 13, 51, 63,95,165,222,274,300,313,333,345,393,398,465,470. 
+
+both dffits contains all 3 of the  outlier points from the MR diagnostic plots: row numbers 95,333 and 398. From the hat matrix, rownumbers 470 and 465 also show up in dffits. 
+
+Although it appears as if there are many common influential points shown by both dffits and dfbetas, there is more evidence supporting these row numbers as being influential outliers and leverage points: rownumbers 95,333,398,465,470.
+
+
+
+lets see what data these rows contain:
+
+```{r}
+commonpoints<-c(95,333,398,465,470)
+
+train[commonpoints,]
+
+```
+
+There are some interesting traits about these datapoints such as that 3/5 people identify as male, 2/5 of them have relatively normal BMIs and 2/5 are morbidly obese.1/5 is a young adult, 1/5 is a senior and 1/5 can be considered middle aged and 2/5 can be considred older adults. The most interesting finding is that 4/5 of them have unusually high average blood pressure.  Based on this, it seems as if the very extreme values seen in these datapoints are skewing the data away from what is captured on average. 
+
+# removing influential points and re-running full model
+
+```{r}
+set.seed(1000557774)
+noinf_train<-train
+
+noinf_train<-noinf_train[-commonpoints,]
+
+#row.names(noinf_train)<-NULL #resetting row indices
+
+noinf_multimodel<-lm(noinf_train$BPSysAve~.,data = noinf_train)
+
+summary(noinf_multimodel)
+
+summary(multimodel)
+
+plot(noinf_multimodel);levpoints
+plot(multimodel)
+
+hmatrix2 <- hatvalues(noinf_multimodel)
+
+thresh2 <- 2 * (dim(model.matrix(noinf_multimodel))[2])/nrow(noinf_train) #p=38 because each category in categorical is counted as individual predictor
+
+levpoints2 <- array(which(hmatrix2 > thresh2))
+levpoints2;levpoints # the leverage points of the model changed compared to the leverage points present before the influential points were removed. only leverage point 14 is in common and a few points are off my 1 number
+```
+
+The new model with the influential points has slightly different results which seem positive overall. Firstly,the qqline looks much more aligned with the datapoints after influential point removal. This indicates that the normality has become better. The y-scales of the all the plots charts also shifted to smaller ranges. Especially looking at both the Residuals vs leverage and Scale-Location plots, the residuals look much more clustered together and pull vertically when the influential points weren't removed. In the new Residuals vs Fitted plots, the datapoints look much more randomly dispersed along the line which shows an improved homoscedasticity measure.
+
+The model summaries also show different results for the model which included the influential points vs the one without. Holding the p-value threshold to be 0.1, the original model showed 10 significant predictors of average blood pressure, 5 of which were within the 0.05 threshold. In the new model, there are 9 significant predictors of average blood pressure, 6 of which are within the 0.05 threshold. 
+
+A look at the plots also show new leverage points that have arisen which weren't there previously. A re-creation of the hat matrix shows a few different leverage points than the original model but majority of them remain the same with the leverage points being off my 1 digit (row 116 in the original hatmatrix vs row 115 in the recreated hatmatrix) due to the removal of influential rows from the last run. But as with the previous model, the outliers seen in the new plots cannot be found among the leverage points of the new hat matrix. We will remove these new leverage points as well and see what happens
+
+## removing newly discovered outliers as well
+
+```{r}
+set.seed(1000557774)
+# first up, cook's distance
+
+D <- cooks.distance(noinf_multimodel)
+
+#dim(model.matrix(noinf_multimodel))[2]), 38 predictors, no ID column
+which(D > qf(0.5, 39, 456)) #fdist,0.5=50th percentile, 38+1=p+1, 495-38-1=n-p-1, n is 495 because 5 rows were removed previously
+# cook's distance found no outliers
+
+#dfbetas
+dfb2 <- dfbetas(noinf_multimodel)
+dfbetasoutliers2<-array(which(abs(dfb2[,1]) > 2/sqrt(495)))#the number of observations is fewer due to the removal previous influential points
+levpoints2;dfbetasoutliers2
+
+#dffits
+
+dfits2 <- dffits(noinf_multimodel)
+dfitsoutliers2<-array(which(abs(dfits2) > 2*sqrt(39/495))) #(p+1)/n
+#noinf_train[dfitsoutliers2,]
+SLROutliers;levpoints2;dfbetasoutliers2;dfitsoutliers2
+```
+Afer the removal of the previous influential poinsts, the new plots showed 5 different outliers, namely row numbers 7,138,164,273 and 312.
+Cook's distance didn't reveal any outliers.
+new dfbeta contain row 164,273 and 312 from the plots. from the hat matrix, dfbetas shares row number 115. 
+New dffits has all 5 row numbers from the plot (7,138,164,273, and 312). From the hat matrix, dffits shares 141. With dfbetas, dffits shares 13,51,63,164,172,221,228,273,299,312,343,391,425,431.
+
+Previously the influential points removal was more selective; not all the rows that commonly showed up between dfbetas and dffits were removed. Only those influential points that were seen in the plot, hat matrix, dfbetas and dffits were removed. Row numbers 13,51 and 63 were seen previously in the dffits and dfbetas from the original model and rows 7 and 221 were seen from the SLR plots. This time we will adopt a much more greedy influential point technique. The point that the hat matrix and the plot shared in common with dfbetas and dffits will be removed but the points shared between dfbetas and dffits will also be removed. Although many points from the SLR plots matched with the points found during influential point analysis, only the points which were supported by more analysis were removed as the original model is a MLR model and decisions to remove points based on SLR diagnostics would not be appropriate. 
+
+The following row numbers will be removed: 7,13,51,63,115,138,164,172,221,228,273,299,312,343,391,425,431. Lets see what these points contain
+
+```{r}
+set.seed(1000557774)
+
+commonpoints<-c(7,13,51,63,115,138,164,172,221,228,273,299,312,343,391,425,431)
+
+noinf_train[commonpoints,]
+noinf_train2<-noinf_train
+
+noinf_train2<-noinf_train2[-commonpoints,]
+row.names(noinf_train2)<-NULL #resetting row indices
+
+noinf_multimodel2<-lm(noinf_train2$BPSysAve~.,data = noinf_train2)
+
+summary(noinf_multimodel2)
+
+summary(noinf_multimodel)
+
+plot(noinf_multimodel2)
+plot(noinf_multimodel)
+
+```
+The new model shows 11 significant predictors, 7 of which are within the 0.05 significance level. This compared to the previous model (which was the first run of influential points removal)  with 9 significant predictors, 6 of which were within the 0.05 significance level. The qqplot shows majority of the datapoints falling on the qqline in a linear fashion. Looking at the plot, the y-scale of the graphs have changed once again and it appears as if the influential points were indeed pulling on the spread of the data. 
+
+There are new points which appear to be outliers but they are closer to the central spread of the datapoints than the other influential datapoints so further influential point removal will not occur. 
+
+Since there are many categorical variables, the model will also be filtered for variance influencing factors.
+
+## Conducting Variance Influencing factor test
+
+Variance influencing factor measures the amount of multicollinearity present among the variables of a multiple regression model. It is the ratio of the overall modal variance of every single independent variable
+
+```{r}
+set.seed(1000557774)
+library(car)
+
+vif(noinf_multimodel2)
+#shows that height,weight and BMI has high multiple collinearity, which makes sense as BMI is derived using height and weight. what happens if i remove height and weight since BMI is better predictor of health than weight or height independently
+
+noinf_noweihei_train<-noinf_train2[,-c(8,9)]#without weight or height
+noinf_noweihei_multimodel<-lm(noinf_noweihei_train$BPSysAve~., data = noinf_noweihei_train)
+
+
+vif(noinf_noweihei_multimodel) #BMI is now below the cuttoff but poverty and income are till high
+
+summary(noinf_noweihei_multimodel) #removing weight and height brought the significant predictors from 12 to 7, 4 of which are within 0.5
+
+# Since income has a higher VIF, lets see what happens when we remove income from the no bmi dataset and fit a model.
+
+noinf_noweihei_noinc_train<-noinf_noweihei_train[,-c(6)]
+noinf_noweihei_noinc_multimodel<-lm(noinf_noweihei_noinc_train$BPSysAve~., data = noinf_noweihei_noinc_train)
+
+vif(noinf_noweihei_noinc_multimodel) # all the variables are under the cutoff of 5
+
+summary(noinf_noweihei_noinc_multimodel)# with income, weight and height removed, age, gender, race and sleeping hours appear to be significant  predictors of blood pressure
+
+# what about with poverty removed?
+noinf_noweihei_nopov_train<-noinf_noweihei_train[,-c(7)]
+noinf_noweihei_nopov_multimodel<-lm(noinf_noweihei_nopov_train$BPSysAve~., data = noinf_noweihei_nopov_train)
+
+vif(noinf_noweihei_nopov_multimodel) # all the variables are under the cutoff of 5
+
+summary(noinf_noweihei_nopov_multimodel) #with poverty, weight and height removed, age, gender, race and the income bracket of 55000-64999 are shown to be significant predictors. Income is easier to interpret than poverty scores determined by some guidelines
+
+#final full model that will undergo model selection is the one without weight, height and poverty. 
+
+```
+
+# Model Selection and Building
+
+The 'full model' being used for model selection contains 13 predictors for blood pressure out of the original 16 variables from the dataset (17 total variables in the dataset, but 1 is the response variable of blood pressure). 
+
+The 13 predictors are the result of removing BMI and Poverty scores variables due to multicolliniearity with other predictors and with the ID column removed since it is not useful as predictor. 
+
+The original training dataset contained 500 observations. After the removal of influential points, the final dataset contains 478 observations.
+## Model from partial f-test
+
+```{r}
+#renaming model and dataset being used for model building for simplification
+final_train<-noinf_noweihei_nopov_train
+
+
+fullmodel<-lm(final_train$BPSysAve~.,data=final_train) #same model as the 'noinf_noweihei_nopov_multimodel' but shorter name
+
+anova(fullmodel) #anova of full shows age and gender as significant
+
+ftest_var<-c("Gender", "Age")
+
+multimodel.reduced<-lm(final_train$BPSysAve~final_train$Gender+final_train$Age,data=final_train)
+
+
+anova(multimodel.reduced)
+summary(multimodel.reduced)
+
+
+```
+The reduced model revealed gender and age to be significant factors but gender and race are highly significant (within 0.05 p-value)
+
+```{r}
+anova(multimodel.reduced, fullmodel)
+
+#try prediction of reduced model and find mse
+
+```
+ The partial f-test failed to reject null hypothesis (the null hypothesis is above 0.05), reduced model explains variance just as well as full model. The first model for testing will be the reduced model.
+ 
+```{r}
+library(glmnet)
+library(rms)
+
+#new model trained on variables deemed significant in the reduced model
+ols.reduced <- ols(BPSysAve ~ ., data = final_train[,c("Gender","Age","BPSysAve")],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+reduced.cross <- calibrate(ols.reduced, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(reduced.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Partial F-Test")
+
+
+## Test Error ##
+pred.reduced <- predict(ols.reduced, newdata = test[ c("Gender","Age","BPSysAve")])
+
+## Prediction error ##
+pred.error.reduced <- mean((test$BPSysAve - pred.reduced)^2)
+
+```
+The reduced model returned a prediction error of 298.5564.
+
+## Model Stepwise with AIC
+ 
+```{r}
+
+stepmodel <- fullmodel #model being used for stepwise reg
+n <- nrow(final_train)
+sel.var.aic<- step(stepmodel, trace = 0, k = 2, direction = "both") 
+sel.var.aic<-attr(terms(sel.var.aic), "term.labels")   
+sel.var.aic
+
+
+#new model with significant predictors
+ols.aic <- ols(BPSysAve ~ ., data = final_train[,which(colnames(final_train) %in% c(sel.var.aic, "BPSysAve"))],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+aic.cross <- calibrate(ols.aic, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(aic.cross, las = 1, xlab = "Predicted Blood Pressure", main = "Cross-Validation calibration with AIC")
+
+
+## Test Error ##
+pred.aic <- predict(ols.aic, newdata = test[,which(colnames(test) %in% c(sel.var.aic, "BPSysAve"))])
+
+## Prediction error ##
+pred.error.AIC <- mean((test$BPSysAve - pred.aic)^2)
+```
+Using AIC critera, gender, age, education, BMI and sleephrsnight came back as significant. The prediction error returned was 299.9179.
+
+
+## Model Stepwise BIC
+```{r}
+sel.var.bic <- step(stepmodel, trace = 0, k = log(n), direction = "both") 
+sel.var.bic<-attr(terms(sel.var.bic), "term.labels")   
+sel.var.bic
+
+#new model with significant predictors
+ols.bic <- ols(BPSysAve ~ ., data = final_train[,which(colnames(final_train) %in% c(sel.var.bic, "BPSysAve"))],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+bic.cross <- calibrate(ols.bic, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(bic.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with BIC")
+
+
+## Test Error ##
+pred.bic <- predict(ols.bic, newdata = test[,which(colnames(test) %in% c(sel.var.bic, "BPSysAve"))])
+
+## Prediction error ##
+pred.error.BIC <- mean((test$BPSysAve - pred.bic)^2)
+
+```
+
+with BIC, only age and gender were deemed significant. The prediction error was returned as 298.5564, same as the partial f-test.
+
+
+## Model Lasso
+
+```{r}
+# LASSO regression
+## Fit a LASSO penalty ##
+set.seed(1000557774)
+model.lasso <- cv.glmnet(x = model.matrix(fullmodel), y = final_train$BPSysAve, standardize = T, alpha = 1)
+
+plot(model.lasso)
+best.lambda <- model.lasso$lambda.1se
+best.lambda
+co<-coef(model.lasso, s = "lambda.1se")
+
+#Selection of the significant features(predictors)
+
+## threshold for variable selection ##
+
+thresh <- 0.00
+# select variables #
+
+inds<-which(abs(co) > thresh )
+variables<-row.names(co)[inds]
+sel.var.lasso<-variables[!(variables %in% '(Intercept)')]
+sel.var.lasso
+
+#new model with significant predictors
+ols.lasso <- ols(BPSysAve ~ ., data = final_train[,which(colnames(final_train) %in% c(sel.var.lasso, "BPSysAve"))],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+lasso.cross <- calibrate(ols.lasso, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(lasso.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Lasso")
+
+
+## Test Error ##
+pred.lasso <- predict(ols.lasso, newdata = test[,which(colnames(test) %in% c(sel.var.lasso, "BPSysAve"))])
+
+## Prediction error ##
+pred.error.lasso <- mean((test$BPSysAve - pred.lasso)^2)
+
+
+
+
+# Grouped Lasso
+Gmodel.lasso <- cv.glmnet(x = model.matrix(fullmodel), y = final_train$BPSysAve, standardize = T, alpha = 1,grouped = TRUE)
+
+plot(Gmodel.lasso)
+best.lambda <- Gmodel.lasso$lambda.1se
+best.lambda
+coG<-coef(Gmodel.lasso, s = "lambda.1se")
+
+#Selection of the significant features(predictors)
+
+## threshold for variable selection ##
+
+thresh <- 0.00
+# select variables #
+
+inds<-which(abs(coG) > thresh )
+Gvariables<-row.names(coG)[inds]
+sel.var.Glasso<-Gvariables[!(Gvariables %in% '(Intercept)')]
+sel.var.Glasso
+
+
+#new model with significant predictors
+ols.Glasso <- ols(BPSysAve ~ ., data = final_train[,which(colnames(final_train) %in% c(sel.var.Glasso, "BPSysAve"))],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+Glasso.cross <- calibrate(ols.Glasso, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(Glasso.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Grouped Lasso")
+
+
+## Test Error ##
+pred.Glasso <- predict(ols.Glasso, newdata = test[,which(colnames(test) %in% c(sel.var.Glasso, "BPSysAve"))])
+
+## Prediction error ##
+pred.error.Glasso <- mean((test$BPSysAve - pred.Glasso)^2)
+
+
+```
+Both ungrouped and grouped Lasso Regression, returned age as the only significant factor. The prediction error returned was 302.7391.
+
+## Model Elastic Net
+```{r}
+# Elastic Net
+set.seed(1000557774)
+
+model.ElasNet <- cv.glmnet(x = model.matrix(fullmodel), y = final_train$BPSysAve, standardize = T, alpha = 0.5)
+
+
+plot(model.ElasNet)
+best.lambdaE <- model.ElasNet$lambda.1se
+best.lambdaE
+coE<-coef(model.ElasNet, s = "lambda.1se")
+
+#Selection of the significant features(predictors)
+
+## threshold for variable selection ##
+
+thresh <- 0.00
+# select variables #
+inds<-which(abs(coE) > thresh )
+variablesE<-row.names(coE)[inds]
+sel.var.elasnet<-variablesE[!(variablesE %in% '(Intercept)')]
+sel.var.elasnet
+
+```
+
+Elastic Net variable selection shows that gender, specifically the level 'Male', age and education, especially the level 'college grad' are significant predictors of blood pressure. This meant the data has to undergo some cleaning. I have to filter out the training dataset to only include rows of males with a college education and train the new model with the new dataset. 
+```{r}
+elasnettrain<-final_train[,c("Gender","Age","Education","BPSysAve")]
+elasnettrain<-elasnettrain%>%filter(Education=="College Grad")
+elasnettrain<-elasnettrain%>%filter(Gender=="male")
+#new model with significant predictors
+ols.elasnet <- ols(BPSysAve ~ ., data = elasnettrain, x=T, y=T, model = T)
+
+```
+After data filtering when i tried to run the model on the new training data set (with only 57 observations),  Running the model with only males for gender and college for education would severely overfit the model to training data which would cause severe underfitting of the test data. So i abandoned the idea of curating a new dataset and just decided to consider all the levels for gender and education and do elastic cross validation with it.
+
+```{r}
+#new model with significant predictors
+ols.elasnet <- ols(BPSysAve ~ ., data = final_train[,c("Gender","Age","Education","BPSysAve")],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+elasnet.cross <- calibrate(ols.elasnet, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(elasnet.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Elastic Net")
+
+
+## Test Error ##
+pred.elasnet <- predict(ols.elasnet, newdata = test[,c("Gender","Age","Education","BPSysAve")])
+
+## Prediction error ##
+pred.error.elasnet <- mean((test$BPSysAve - pred.elasnet)^2)
+```
+The prediction error came to 299.4684.
+
+## Model Research based: Biologically relevant factors chosen
+
+According to the CDC's website, the risk factors for high blood pressure include Gender, age,race,physical activity and obesity. Based on those factors, another model was trained with variables from the dataset.
+
+```{r}
+set.seed(1000557774)
+#hand selected model:
+ols.research <- ols(BPSysAve ~ ., data = final_train[,c("Gender","Age","BPSysAve","SmokeNow","Race3","BMI","PhysActive")],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+research.cross <- calibrate(ols.research, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(research.cross, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Researched Predictors")
+
+researched_var<-c("Gender","Age","BPSysAve","SmokeNow","Race3","BMI","PhysActive")
+## Test Error ##
+pred.research <- predict(ols.research, newdata = test[,c("Gender","Age","BPSysAve","SmokeNow","Race3","BMI","PhysActive")])
+
+## Prediction error ##
+pred.error.research <- mean((test$BPSysAve - pred.research)^2)
+```
+
+
+## interaction of SmokeNow on the best model
+
+The best predictor of systolic blood pressure turns out to be gender and age which was determined by both the Partial f-test and the BIC criterion. Here we see the interaction between smoke now and the best predictors
+
+According to summary table, SmokeNow is a slightly significant predictor and has a moderate interaction with age. it is the average change in blood pressure for a one year increase in age can lower the average blood pressure of a smoker by 0.157 units, regardless of gender.
+```{r}
+set.seed(1000557774)
+#Final Model
+interaction.model <- lm(BPSysAve ~Gender+Age+as.factor(SmokeNow)+Gender*as.factor(SmokeNow)+Age*as.factor(SmokeNow) , data = final_train)
+summary(interaction.model)
+anova(interaction.model)
+interaction.plot(x.factor = final_train$Age,trace.factor = final_train$SmokeNow,response = final_train$BPSysAve,fun = median,col = c('blue','red'),lty=1,lwd=2, xlab = "Age", ylab = "Blood Pressure", trace.label = "Smoker", main = "Interaction of Smoking with Blood Pressure and Age")
+
+
+ggplot(final_train,aes(final_train$Age,final_train$BPSysAve,colour=final_train$SmokeNow))+geom_line()
+```
+
+## Diagnostic checking and outlier removal
+```{r}
+# Running model Diagnostics on final model
+model.age.gender<-lm(BPSysAve~Age+Gender,data = final_train)
+plot(model.age.gender)
+
+summary(model.age.gender)
+
+#dim(model.matrix(model.age.gender))
+
+
+set.seed(1000557774)
+
+library(Matrix)
+hmatrixfinal <- hatvalues(model.age.gender) #help us find leverage points
+thresh <- 2 * (dim(model.matrix(model.age.gender))[2])/nrow(final_train) #p=38 because each category in categorical is counted as individual predictor and ID was removed as predictor
+levpointsfinal <- array(which(hmatrixfinal > thresh))
+levpointsfinal #no leverage points found in the final model
+final_train[levpointsfinal,]
+
+
+# first up, cook's distance
+D <- cooks.distance(model.age.gender)
+
+#dim(model.matrix(noinf_multimodel))[2]), 38 predictors, no ID column
+which(D > qf(0.5, 4, 439)) #fdist,0.5=50th percentile, 3+1=p+1, 478-38-1=n-p-1, n is 495 because 5 rows were removed previously
+# cook's distance found no outliers
+
+#dfbetas
+dfbfinal <- dfbetas(model.age.gender)
+dfbetasoutliersfinal<-array(which(abs(dfbfinal[,1]) > 2/sqrt(478)))#the number of observations is fewer due to the removal previous influential points
+levpointsfinal;dfbetasoutliersfinal
+
+#dffits
+
+dfitsfinal <- dffits(model.age.gender)
+dfitsoutliersfinal<-array(which(abs(dfitsfinal) > 2*sqrt(4/478))) #(p+1)/n
+#noinf_train[dfitsoutliers2,]
+levpointsfinal;dfbetasoutliersfinal;dfitsoutliersfinal
+#outliers<-c(250,402,)
+plot(model.age.gender)
+
+```
+## removing outliers from final model
+```{r}
+# choosing outliers that are common b/w the plot, dffits and dfbetas
+outliers<-c(45,357,457,45,402,250)
+final_trainf<-final_train[-outliers,]
+
+# run cross validation on new dataset and check difference in prediction errors
+
+library(glmnet)
+library(rms)
+
+#new model trained on variables deemed significant in the reduced model
+ols.reducedfinal <- ols(BPSysAve ~ ., data = final_trainf[,c("Gender","Age","BPSysAve")],x=T, y=T, model = T)
+
+## 10 fold cross validation ##    
+reduced.crossfinal <- calibrate(ols.reducedfinal, method = "crossvalidation", B = 10)
+## Calibration plot ##
+
+plot(reduced.crossfinal, las = 1, xlab = "Predicted Systolic Blood Pressure", main = "Cross-Validation calibration with Partial F-Test")
+
+
+## Test Error ##
+pred.reducedfinal <- predict(ols.reducedfinal, newdata = test[ c("Gender","Age","BPSysAve")])
+
+## Prediction error ##
+pred.error.reducedfinal <- mean((test$BPSysAve - pred.reducedfinal)^2)
+
+pred.error.reduced;pred.error.reducedfinal
+
+```
+
+The prediction error actually increased when outliers were removed from the final model.
+```{r}
+errors<-c(pred.error.AIC,pred.error.BIC,pred.error.elasnet,pred.error.lasso,pred.error.Glasso,pred.error.reduced,pred.error.research)
+names<-c("AIC","BIC","Elastic Net", "Lasso", "Glasso", "Partial F-test", "Researched Model")
+errors_summary<-as.data.frame(errors,row.names = names)
+
+
+```
+
+# Discussion
+
+Gender and age were shown to be significant predictors and smoking has an interaction with age so decrease the average blood pressure as age increases, regardless of whether the smoker is male or female. Model Diagnostics were run on the final model again. The final model did not reveal any leverage points when the hat matrix was created. Dffits and DfBetas were run again and those outliers that overlapped between the plot, dffits and dfbetas were removed. Cross Validation was done again and prediction error was re-calculated. The prediction errors for the final model was 298.5564 but after more influential points were removed, the prediction error actually increased to 300.8108. This indicates that some of those influential points were positively impacting the response variable. The adjusted R^2 is very low which means that the regression model doesn't explain most of the variability in the data and that there are confounding factors which may be impacting the results
+
+One of the limitations I did not get to explore was to retrain the model based on the recommendations from elastic net with gender=male and education = college grad. It would be interesting to see how much the prediction error changes. I hypothesis that the elastic net model would overfit the training data but underfit the testing data. It was interesting to see how the research model performed so poorly despite including all the predictors found to be strongly related to high blood pressure. This experiment really goes to show how health is complicated and there are many interactions that happen beneath the surface that often change what is expected.
+
+```{r}
+citation("rms")
+```
+# References
+- Alexander.R.(2020).Exploratory Data Analysis. Telling Stories With Data. https://www.tellingstorieswithdata.com/exploratory-data-analysis.html
+
+- Douglas Bates and Martin Maechler (2021). Matrix: Sparse and Dense Matrix Classes
+  and Methods. R package version 1.3-3. https://CRAN.R-project.org/package=Matrix
+- Ebner.J.(2018). How to use facet_wrap in ggplot2. SharpSight. https://www.sharpsightlabs.com/blog/facet_wrap/ 
+  
+- Frank E Harrell Jr (2021). rms: Regression Modeling Strategies. R package version
+  6.2-0. https://CRAN.R-project.org/package=rms
+
+- H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New
+  York, 2016.
+  
+- How to guide for R. https://methods.sagepub.com/dataset/howtoguide/continuous-categorical-interactions-in-bcs-2007-8-r
+
+- Jerome Friedman, Trevor Hastie, Robert Tibshirani (2010). Regularization Paths
+  for Generalized Linear Models via Coordinate Descent. Journal of Statistical
+  Software, 33(1), 1-22. URL https://www.jstatsoft.org/v33/i01/.
+  
+- John Fox and Sanford Weisberg (2019). An {R} Companion to Applied Regression,
+  Third Edition. Thousand Oaks CA: Sage. URL:
+  https://socialsciences.mcmaster.ca/jfox/Books/Companion/
+  
+- Kumar.k.(2021).Which is more important: Systolic or Diastolic Blood Pressure.MedicineNet. https://www.medicinenet.com/importance_systolic_vs_diastolic_blood_pressure/article.htm 
+
+ - NHANES: NHANES 2009-2012 with adjusted weighting. https://www.rdocumentation.org/packages/NHANES/versions/2.1.0/topics/NHANES
+
+- Randall Pruim (2015). NHANES: Data from the US National Health and Nutrition
+  Examination Study. R package version 2.1.0.
+  https://CRAN.R-project.org/package=NHANES
+  
+- Schork.J.(2021). Create Dumy Variables in R. Statistics Globe. https://statisticsglobe.com/create-dummy-variable-in-r#example-2-convert-categorical-variable-to-dummy-matrix-using-modelmatrix-function
+
+- The Investopedia Team.(2021).Variance Inflation Factor. Investopedia. https://www.investopedia.com/terms/v/variance-inflation-factor.asp
+
+- Venables, W. N. & Ripley, B. D. (2002) Modern Applied Statistics with S. Fourth
+  Edition. Springer, New York. ISBN 0-387-95457-0
+  
+- Viernes.F.(2021).Linear Regression Models and Influential Points.Towards Data Science. https://towardsdatascience.com/linear-regression-models-and-influential-points-4ee844adac6d
+  
+- Watson. S.(2019).Blood Pressure from top to bottom. Berkeley Wellness. https://www.berkeleywellness.com/self-care/preventive-care/article/blood-pressure-top-bottom
+
+- Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source
+  Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+
+- Zach.(2020).How to Crete an Interaction Plot in R.Statology. https://www.statology.org/interaction-plot-r/ 
+
+- 2018.Using LASSO in R categorical variables. StackOverFlow.https://stackoverflow.com/questions/46865838/using-lasso-in-r-with-categorical-variables 
+
+- 2020.Know Your Risk for High Blood Pressure. Center for Disease Control and Prevention.https://www.cdc.gov/bloodpressure/risk_factors.htm
